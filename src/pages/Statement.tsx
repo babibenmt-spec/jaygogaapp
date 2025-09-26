@@ -247,7 +247,8 @@ const Statement: React.FC = () => {
         if (commaIndex !== -1) {
           pureBase64 = pureBase64.substring(commaIndex + 1);
         }
-        pureBase64 = pureBase64.replace(/\s/g, '');
+        // Remove all non-base64 characters to prevent encoding errors
+        pureBase64 = pureBase64.replace(/[^A-Za-z0-9+/=]/g, '');
 
         doc.addFileToVFS('HindVadodara-Regular.ttf', pureBase64);
         doc.addFont('HindVadodara-Regular.ttf', 'HindVadodara', 'normal');
