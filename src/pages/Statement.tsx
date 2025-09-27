@@ -32,7 +32,6 @@ interface DailySummaryForStatement {
   totalPaid: number;
   balance: number;
   allItems: OrderItem[];
-  status: 'pending' | 'delivered';
 }
 
 const triggerDownload = (blob: Blob, filename: string) => {
@@ -55,16 +54,12 @@ const getDailySummariesForStatement = (orders: DailyOrder[]): DailySummaryForSta
                 totalAmount: 0,
                 totalPaid: 0,
                 allItems: [],
-                status: 'delivered' as 'pending' | 'delivered',
             };
         }
         const summary = acc[date];
         summary.totalAmount += order.total_amount;
         summary.totalPaid += order.amount_paid || 0;
         summary.allItems.push(...order.items);
-        if (order.status === 'pending') {
-            summary.status = 'pending';
-        }
         return acc;
     }, {} as Record<string, Omit<DailySummaryForStatement, 'balance'>>);
 
@@ -94,6 +89,7 @@ const Statement: React.FC = () => {
   const today = new Date().toISOString().split('T')[0];
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
+  const [reportDate, setReportDate] = useState(today);
   const [selectedCustomerId, setSelectedCustomerId] = useState('all');
   const [generatedStatement, setGeneratedStatement] = useState<StatementResult | null>(null);
 
@@ -162,24 +158,24 @@ const Statement: React.FC = () => {
   };
 
   const handleDownloadDailyFullReport = () => {
-    const todayOrders = orders.filter(order => order.date === today);
+    const reportDateOrders = orders.filter(order => order.date === reportDate);
 
     // Financial Summary Sheet
-    const totalCollectionToday = todayOrders.reduce((sum, order) => sum + (order.amount_paid || 0), 0);
-    const totalAmountToday = todayOrders.reduce((sum, order) => sum + order.total_amount, 0);
-    const totalPendingToday = totalAmountToday - totalCollectionToday;
+    const totalCollection = reportDateOrders.reduce((sum, order) => sum + (order.amount_paid || 0), 0);
+    const totalAmount = reportDateOrders.reduce((sum, order) => sum + order.total_amount, 0);
+    const totalPending = totalAmount - totalCollection;
     const financialSummaryData = [
       ["Metric", "Value"],
-      ["Total Amount", `₹${totalAmountToday.toFixed(2)}`],
-      ["Today's Collection", `₹${totalCollectionToday.toFixed(2)}`],
-      ["Today's Pending", `₹${totalPendingToday.toFixed(2)}`],
-      ["Total Orders Today", todayOrders.length],
+      ["Total Amount", `₹${totalAmount.toFixed(2)}`],
+      ["Collection", `₹${totalCollection.toFixed(2)}`],
+      ["Pending", `₹${totalPending.toFixed(2)}`],
+      ["Total Orders", reportDateOrders.length],
     ];
     const financialWs = XLSX.utils.aoa_to_sheet(financialSummaryData);
     financialWs['!cols'] = [{wch: 20}, {wch: 15}];
 
     // Customer Summary Sheet
-    const customerSummary = todayOrders.reduce((acc, order) => {
+    const customerSummary = reportDateOrders.reduce((acc, order) => {
       if (!acc[order.customer_id]) {
         acc[order.customer_id] = { name: order.customer_name, total: 0, paid: 0 };
       }
@@ -196,7 +192,7 @@ const Statement: React.FC = () => {
 
     // Product Summary Sheet
     const productSummary: { [productName: string]: { quantity: number; unit: string } } = {};
-    todayOrders.forEach(order => {
+    reportDateOrders.forEach(order => {
         order.items.forEach(item => {
             const product = products.find(p => p.id === item.product_id);
             const baseUnit = product?.unit || 'units';
@@ -215,14 +211,40 @@ const Statement: React.FC = () => {
     productWs['!cols'] = [{wch: 30}, {wch: 20}];
 
     // All Orders Detailed Sheet
-    const allOrdersData = [
-        ["Date", "Customer Name", "Product Name", "Quantity", "Unit", "Price per Unit", "Total Price", "Status"],
-        ...todayOrders.flatMap(order => 
-            order.items.map(item => [ order.date, order.customer_name, item.product_name, item.quantity, item.unit, item.price, item.total, order.status ])
-        )
+    const allOrdersData: (string | number)[][] = [
+        ["Customer Name", "Product Name", "Quantity", "Unit", "Price per Unit", "Total Price"],
     ];
+    const ordersByCustomer = reportDateOrders.reduce((acc, order) => {
+        (acc[order.customer_id] = acc[order.customer_id] || []).push(order);
+        return acc;
+    }, {} as Record<string, DailyOrder[]>);
+
+    let grandTotal = 0;
+    Object.values(ordersByCustomer).sort((a,b) => a[0].customer_name.localeCompare(b[0].customer_name)).forEach(customerOrders => {
+        const customerName = customerOrders[0].customer_name;
+        let customerTotal = 0;
+        
+        customerOrders.flatMap(order => order.items).forEach(item => {
+            allOrdersData.push([
+                customerName,
+                item.product_name,
+                item.quantity,
+                item.unit,
+                item.price,
+                item.total
+            ]);
+            customerTotal += item.total;
+        });
+
+        allOrdersData.push(["", "", "", "", { t: 's', v: "Customer Total", s: { font: { bold: true } } }, { t: 'n', v: customerTotal, s: { font: { bold: true }, num_fmt: '"₹"#,##0.00' } }]);
+        allOrdersData.push([]); // Blank row for spacing
+        grandTotal += customerTotal;
+    });
+    
+    allOrdersData.push(["", "", "", "", { t: 's', v: "Grand Total", s: { font: { bold: true, sz: 14 } } }, { t: 'n', v: grandTotal, s: { font: { bold: true, sz: 14 }, num_fmt: '"₹"#,##0.00' } }]);
+    
     const allOrdersWs = XLSX.utils.aoa_to_sheet(allOrdersData);
-    allOrdersWs['!cols'] = [{wch: 12}, {wch: 25}, {wch: 30}, {wch: 10}, {wch: 10}, {wch: 15}, {wch: 15}, {wch: 12}];
+    allOrdersWs['!cols'] = [{wch: 25}, {wch: 30}, {wch: 10}, {wch: 10}, {wch: 15}, {wch: 15}];
 
     // Create workbook and download
     const wb = XLSX.utils.book_new();
@@ -233,7 +255,7 @@ const Statement: React.FC = () => {
     
     const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
     const blob = new Blob([wbout], { type: "application/octet-stream" });
-    triggerDownload(blob, `Daily_Full_Report_${today}.xlsx`);
+    triggerDownload(blob, `Daily_Full_Report_${reportDate}.xlsx`);
   };
 
   const handleDownloadPDF = () => {
@@ -293,14 +315,13 @@ const Statement: React.FC = () => {
         yPos += 5;
 
         const dailySummaries = getDailySummariesForStatement(cs.orders);
-        const tableColumn = ["Date", "Items", "Total", "Paid", "Balance", "Status"];
+        const tableColumn = ["Date", "Items", "Total", "Paid", "Balance"];
         const tableRows = dailySummaries.map(summary => [
             new Date(summary.date).toLocaleDateString('en-IN', { timeZone: 'UTC' }),
             summary.allItems.map(i => `${i.product_name} (x${i.quantity} @ ₹${i.price.toFixed(2)})`).join('\n'),
             `₹${summary.totalAmount.toFixed(2)}`,
             `₹${summary.totalPaid.toFixed(2)}`,
             `₹${summary.balance.toFixed(2)}`,
-            summary.status,
         ]);
 
         (doc as any).autoTable({
@@ -342,7 +363,7 @@ const Statement: React.FC = () => {
         ws_data.push(["Customer Total", cs.totalAmount, "Customer Paid", cs.totalPaid, "Customer Pending", cs.pendingAmount]);
         
         const dailySummaries = getDailySummariesForStatement(cs.orders);
-        ws_data.push(["Date", "Items", "Total", "Paid", "Balance", "Status"]);
+        ws_data.push(["Date", "Items", "Total", "Paid", "Balance"]);
         dailySummaries.forEach(summary => {
             ws_data.push([
                 new Date(summary.date).toLocaleDateString('en-IN', { timeZone: 'UTC' }),
@@ -350,14 +371,13 @@ const Statement: React.FC = () => {
                 summary.totalAmount,
                 summary.totalPaid,
                 summary.balance,
-                summary.status,
             ]);
         });
         ws_data.push([]);
     });
 
     const ws = XLSX.utils.aoa_to_sheet(ws_data);
-    ws['!cols'] = [{wch:12}, {wch:40}, {wch:10}, {wch:10}, {wch:10}, {wch:10}];
+    ws['!cols'] = [{wch:12}, {wch:40}, {wch:10}, {wch:10}, {wch:10}];
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Statement");
 
@@ -425,20 +445,26 @@ const Statement: React.FC = () => {
           className="bg-white rounded-xl p-4 mb-6 shadow-sm border border-gray-100"
         >
           <h2 className="text-xl font-bold text-gray-800 mb-2">Daily Full Report</h2>
-          <p className="text-gray-600 mb-4">Download a complete Excel report of all data for today, {today}.</p>
-          <motion.button
-            onClick={handleDownloadDailyFullReport}
-            disabled={dataLoading}
-            className="w-full bg-green-600 text-white py-3 rounded-lg font-medium flex justify-center items-center space-x-2"
-            whileTap={{ scale: 0.98 }}
-          >
-            {dataLoading ? <Loader2 className="animate-spin" /> : (
-              <>
-                <FileSpreadsheet size={20} />
-                <span>Download Today's Report</span>
-              </>
-            )}
-          </motion.button>
+          <p className="text-gray-600 mb-4">Download a complete Excel report for a specific day.</p>
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Report Date</label>
+              <input type="date" value={reportDate} onChange={e => setReportDate(e.target.value)} className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-dairy-500"/>
+            </div>
+            <motion.button
+              onClick={handleDownloadDailyFullReport}
+              disabled={dataLoading}
+              className="w-full bg-green-600 text-white py-3 rounded-lg font-medium flex justify-center items-center space-x-2"
+              whileTap={{ scale: 0.98 }}
+            >
+              {dataLoading ? <Loader2 className="animate-spin" /> : (
+                <>
+                  <FileSpreadsheet size={20} />
+                  <span>Download Daily Report</span>
+                </>
+              )}
+            </motion.button>
+          </div>
         </motion.div>
 
         <AnimatePresence>
@@ -481,7 +507,6 @@ const Statement: React.FC = () => {
                             <div key={summary.date} className="bg-gray-50 rounded-lg p-3">
                               <div className="flex justify-between items-center mb-2">
                                 <p className="font-semibold text-gray-700">{new Date(summary.date).toLocaleDateString('en-IN', { timeZone: 'UTC' })}</p>
-                                <span className={`inline-block px-2 py-1 text-xs rounded-full ${summary.status === 'delivered' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>{summary.status}</span>
                               </div>
                               <div className="text-xs text-gray-600 space-y-1 my-2 pl-2 border-l-2 border-dairy-200">
                                 {summary.allItems.map((item, idx) => (

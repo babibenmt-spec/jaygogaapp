@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Layout from '../components/Layout/Layout';
 import { useAuth } from '../context/AuthContext';
 import { Customer, Product, OrderItem } from '../types';
-import { Calendar, Plus, ShoppingCart, Check, Clock, Trash2, AlertTriangle, Loader2, IndianRupee, User, Edit } from 'lucide-react';
+import { Calendar, Plus, ShoppingCart, Trash2, AlertTriangle, Loader2, IndianRupee, User, Edit } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 
 type OrderItemWithId = OrderItem & { clientId: string };
@@ -15,7 +15,6 @@ interface CustomerDailySummary {
   allItems: OrderItem[];
   totalAmount: number;
   amountPaid: number;
-  status: 'pending' | 'delivered';
 }
 
 const Orders: React.FC = () => {
@@ -52,7 +51,6 @@ const Orders: React.FC = () => {
                 allItems: [],
                 totalAmount: 0,
                 amountPaid: 0,
-                status: 'delivered',
             };
         }
 
@@ -61,9 +59,6 @@ const Orders: React.FC = () => {
         summary.allItems.push(...order.items);
         summary.totalAmount += order.total_amount;
         summary.amountPaid += order.amount_paid || 0;
-        if (order.status === 'pending') {
-            summary.status = 'pending';
-        }
     }
     
     Object.values(summaryMap).forEach(summary => {
@@ -195,7 +190,7 @@ const Orders: React.FC = () => {
           date: selectedDate,
           total_amount: newTotalAmount,
           amount_paid: editingSummary.amountPaid, // Preserve total payment
-          status: editingSummary.status,
+          status: 'pending',
         }, itemsToSave);
       }
 
@@ -203,21 +198,6 @@ const Orders: React.FC = () => {
     } catch (error) {
       console.error("Failed to update order", error);
       alert("Failed to update order.");
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleToggleStatus = async (summary: CustomerDailySummary) => {
-    const newStatus = summary.status === 'pending' ? 'delivered' : 'pending';
-    setIsSubmitting(true);
-    try {
-      await Promise.all(
-        summary.orderIds.map(orderId => updateOrder(orderId, { status: newStatus }))
-      );
-    } catch (error) {
-      console.error("Failed to update status for all orders", error);
-      alert("Failed to update orders status.");
     } finally {
       setIsSubmitting(false);
     }
@@ -445,15 +425,8 @@ const Orders: React.FC = () => {
                         ))}
                       </div>
 
-                      <div className="flex justify-between items-center pt-3 border-t">
-                        <span className={`inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full ${summary.status === 'delivered' ? 'bg-green-100 text-green-800' : 'bg-orange-100 text-orange-800'}`}>
-                          {summary.status}
-                        </span>
+                      <div className="flex justify-end items-center pt-3 border-t">
                         <div className="flex items-center space-x-2">
-                          <motion.button onClick={() => handleToggleStatus(summary)} disabled={isSubmitting} className={`p-2 text-xs rounded-lg flex items-center space-x-1.5 font-medium ${summary.status === 'delivered' ? 'bg-orange-100 text-orange-700' : 'bg-green-100 text-green-700'}`} whileTap={{ scale: 0.95 }}>
-                            {isSubmitting ? <Loader2 size={14} className="animate-spin" /> : (summary.status === 'pending' ? <Check size={14} /> : <Clock size={14} />)}
-                            <span>{summary.status === 'pending' ? 'Deliver' : 'Set Pending'}</span>
-                          </motion.button>
                           <motion.button onClick={() => handleOpenEditModal(summary)} className="p-2 text-blue-600 bg-blue-100 rounded-lg" whileTap={{ scale: 0.95 }} title="Edit Orders"><Edit size={14} /></motion.button>
                           <motion.button onClick={() => handleDelete(summary)} className="p-2 text-red-600 bg-red-100 rounded-lg" whileTap={{ scale: 0.95 }} title="Delete Orders"><Trash2 size={14} /></motion.button>
                         </div>

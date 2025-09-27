@@ -163,11 +163,11 @@ const Keret: React.FC = () => {
                         <div className="grid grid-cols-3 gap-2 text-center">
                           <div className="bg-blue-50 p-2 rounded-lg">
                             <p className="text-lg font-bold text-blue-700">{calculation.fullBoxes}</p>
-                            <p className="text-xs text-blue-600">Boxes</p>
+                            <p className="text-xs text-blue-600">Keret</p>
                           </div>
                           <div className="bg-yellow-50 p-2 rounded-lg">
                             <p className="text-lg font-bold text-yellow-700">{calculation.remainingPieces}</p>
-                            <p className="text-xs text-yellow-600">Loose</p>
+                            <p className="text-xs text-yellow-600">Pcs Left</p>
                           </div>
                           <div className="bg-green-50 p-2 rounded-lg">
                             <p className="text-lg font-bold text-green-700">{calculation.neededForNextBox}</p>
